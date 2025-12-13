@@ -2,6 +2,9 @@ import { Link } from 'expo-router';
 import { Pressable, View, Text, StyleSheet, useColorScheme } from 'react-native';
 import { Image } from 'expo-image';
 
+import { router } from 'expo-router';
+
+
 export type Event = {
   id: string;
   title: string;
@@ -92,7 +95,7 @@ export default function EventCard({ event, styleType = 'classic' }: Props) {
   });
 
   return (
-    <Link href={`/eventPages/${event.id}`} style={{display: "contents"}} asChild> 
+    <Link href={`/events/${event.id}`} style={{display: "contents"}} asChild> 
       {/* asChild lets Pressable become the clickable area */}
       <Pressable style={{ width: "100%" }}>
         <View style={S.card}>
