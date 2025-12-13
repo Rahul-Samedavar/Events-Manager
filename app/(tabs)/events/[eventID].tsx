@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Calendar from "expo-calendar";
 import { Image } from "expo-image";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
@@ -6,7 +7,6 @@ import React, { useEffect, useState } from "react";
 import {
   Alert,
   Platform,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -15,6 +15,8 @@ import {
   View,
 } from "react-native";
 import Markdown, { RenderRules } from "react-native-markdown-display";
+// Use Safe Area Context for precise Android notches
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // Mock Data Import
 import { isDarkTheme } from "@/hooks/use-theme-color";
@@ -40,33 +42,70 @@ const COLORS = {
     border: "#333333",
     codeBg: "#333333",
   },
-  // Status specific colors
   status: {
-    live: "#E74C3C", // Red
-    ended: "#7F8C8D", // Grey
-    soon: "#F39C12", // Orange
-    upcoming: "#27AE60", // Green
+    live: "#E74C3C",
+    ended: "#7F8C8D",
+    soon: "#F39C12",
+    upcoming: "#27AE60",
   },
 };
+
+const STORAGE_KEY = "bookmarked_events";
 
 export default function EventDetailsPage() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
+  const insets = useSafeAreaInsets(); // Get notch heights
   const isDark = isDarkTheme();
   const theme = isDark ? COLORS.dark : COLORS.light;
 
-  // Use state for current time to ensure 'Live' status updates if the user stays on the page
   const [now, setNow] = useState(new Date());
+  const [isBookmarked, setIsBookmarked] = useState(false);
 
   const event = EVENTS.find((e) => e.id === id);
 
+  // 1. Check Storage on Load
   useEffect(() => {
-    // Optional: Update time every minute to keep status accurate
+    checkBookmarkStatus();
     const timer = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(timer);
-  }, []);
+  }, [id]);
 
-  // --- Logic: Get Status Tag ---
+  const checkBookmarkStatus = async () => {
+    try {
+      const stored = await AsyncStorage.getItem(STORAGE_KEY);
+      const bookmarks = stored ? JSON.parse(stored) : [];
+      setIsBookmarked(bookmarks.includes(String(id)));
+    } catch (error) {
+      console.error("Storage Error", error);
+    }
+  };
+
+  // 2. Toggle Logic
+  const toggleBookmark = async () => {
+    try {
+      const newStatus = !isBookmarked;
+      setIsBookmarked(newStatus); // Optimistic UI update
+
+      const stored = await AsyncStorage.getItem(STORAGE_KEY);
+      let bookmarks = stored ? JSON.parse(stored) : [];
+      const eventId = String(id);
+
+      if (newStatus) {
+        if (!bookmarks.includes(eventId)) bookmarks.push(eventId);
+        Alert.alert("Saved", "Event added to your bookmarks.");
+      } else {
+        bookmarks = bookmarks.filter((savedId: string) => savedId !== eventId);
+      }
+
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(bookmarks));
+    } catch (error) {
+      Alert.alert("Error", "Could not save bookmark.");
+      setIsBookmarked(!isBookmarked); // Revert
+    }
+  };
+
+  // --- Helpers ---
   const getEventStatus = (startStr: Date, endStr: Date) => {
     const start = new Date(startStr);
     const end = new Date(endStr);
@@ -74,21 +113,17 @@ export default function EventDetailsPage() {
     const diffHrs = diffMs / (1000 * 60 * 60);
     const diffDays = Math.ceil(diffHrs / 24);
 
-    if (now > end) {
+    if (now > end)
       return { label: "Ended", color: COLORS.status.ended, icon: "flag" };
-    }
-    if (now >= start && now <= end) {
+    if (now >= start && now <= end)
       return { label: "Live", color: COLORS.status.live, icon: "radio" };
-    }
-    if (diffHrs < 0.5 && diffHrs > 0) {
+    if (diffHrs < 0.5 && diffHrs > 0)
       return {
         label: "About to start",
         color: COLORS.status.soon,
         icon: "time",
       };
-    }
     if (diffHrs < 24 && diffHrs > 0) {
-      // Handle singular/plural
       const hrs = Math.ceil(diffHrs);
       return {
         label: `${hrs} ${hrs === 1 ? "hour" : "hours"} left`,
@@ -96,7 +131,6 @@ export default function EventDetailsPage() {
         icon: "hourglass",
       };
     }
-
     return {
       label: `${diffDays} days left`,
       color: theme.primary,
@@ -166,7 +200,7 @@ export default function EventDetailsPage() {
     }
   };
 
-  if (!event) return null; // Or your error view
+  if (!event) return null;
 
   const markdownStyles = StyleSheet.create({
     body: {
@@ -246,22 +280,23 @@ export default function EventDetailsPage() {
   };
 
   return (
-    <SafeAreaView style={[S.container, { backgroundColor: theme.bg }]}>
-      <Stack.Screen
-        options={{
-          headerShown: true,
-          headerTransparent: true,
-          headerTitle: "",
-          headerTintColor: "#fff",
-          headerBackTitleVisible: false,
-        }}
+    <View style={[S.container, { backgroundColor: theme.bg }]}>
+      {/* 
+        1. HIDE DEFAULT HEADER 
+        We are making our own to guarantee it works on Android 
+      */}
+      <Stack.Screen options={{ headerShown: false }} />
+      <StatusBar
+        barStyle="light-content"
+        translucent={true}
+        backgroundColor="transparent"
       />
-      <StatusBar barStyle="light-content" />
 
       <ScrollView
         bounces={false}
         contentContainerStyle={{ paddingBottom: 100 }}
       >
+        {/* Hero Image */}
         <View style={S.imageContainer}>
           <Image
             source={event.image}
@@ -272,9 +307,9 @@ export default function EventDetailsPage() {
           <View style={S.imageOverlay} />
         </View>
 
+        {/* Content */}
         <View style={[S.contentContainer, { backgroundColor: theme.bg }]}>
           <View style={S.header}>
-            {/* Top Row: Department + Status Badge */}
             <View style={S.headerTopRow}>
               <Text style={[S.dept, { color: theme.primary }]}>
                 {event.department.toUpperCase()}
@@ -290,7 +325,6 @@ export default function EventDetailsPage() {
                     },
                   ]}
                 >
-                  {/* The '20' adds transparency to the background color */}
                   <Ionicons
                     name={status.icon as any}
                     size={12}
@@ -357,6 +391,25 @@ export default function EventDetailsPage() {
         </View>
       </ScrollView>
 
+      {/* 
+        2. CUSTOM FLOATING HEADER 
+        This is placed AFTER ScrollView, so it floats on top (z-index).
+        It uses 'insets.top' so it never gets hidden behind the Android notch.
+      */}
+      <View style={[S.customHeader, { paddingTop: insets.top + 10 }]}>
+        <TouchableOpacity onPress={() => router.back()} style={S.iconButton}>
+          <Ionicons name="arrow-back" size={24} color="#FFF" />
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={toggleBookmark} style={S.iconButton}>
+          <Ionicons
+            name={isBookmarked ? "heart" : "heart-outline"}
+            size={24}
+            color={isBookmarked ? "#FF4B4B" : "#FFF"}
+          />
+        </TouchableOpacity>
+      </View>
+
       <View
         style={[
           S.footer,
@@ -381,12 +434,35 @@ export default function EventDetailsPage() {
           </Text>
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const S = StyleSheet.create({
   container: { flex: 1 },
+  // --- New Custom Header Styles ---
+  customHeader: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingBottom: 10,
+    zIndex: 100, // Forces it on top of everything
+    // No background color, so it's transparent
+  },
+  iconButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(0,0,0,0.3)", // Semi-transparent black bubble
+    justifyContent: "center",
+    alignItems: "center",
+    backdropFilter: "blur(10px)", // Nice blur effect on iOS/Web
+  },
+  // -----------------------------
   imageContainer: { height: 300, width: "100%", position: "relative" },
   image: { width: "100%", height: "100%" },
   imageOverlay: {
@@ -402,17 +478,14 @@ const S = StyleSheet.create({
     paddingTop: 30,
     minHeight: 500,
   },
-
   header: { marginBottom: 20 },
   headerTopRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between", // Pushes dept to left, badge to right
+    justifyContent: "space-between",
     marginBottom: 8,
   },
   dept: { fontSize: 12, fontWeight: "700", letterSpacing: 1 },
-
-  // New Status Badge Styles
   statusBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -421,12 +494,7 @@ const S = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
   },
-  statusText: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-  },
-
+  statusText: { fontSize: 10, fontWeight: "800", letterSpacing: 0.5 },
   title: { fontSize: 28, fontWeight: "800", lineHeight: 34 },
   metaContainer: {
     flexDirection: "column",

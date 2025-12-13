@@ -1,10 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Stack } from "expo-router";
+import { Stack, useFocusEffect } from "expo-router"; // Added useFocusEffect
 import { StatusBar } from "expo-status-bar";
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import {
   Animated,
-  Dimensions,
   FlatList,
   Platform,
   Pressable,
@@ -16,18 +15,13 @@ import {
   useColorScheme,
   Image as RNImage,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage"; // Import Storage
 
-// If you have the real component, keep these imports.
-// If not, comment them out and use the MOCK COMPONENT defined at the bottom of this file.
-import { EVENTS , EventCardTheme} from "@/libs/events";
+import { EVENTS } from "@/libs/events";
 import EventCard from "@/components/ui/eventcard";
 
-// --- TYPES (If not imported) ---
-// type EventCardTheme = "midnight" | "gold" | "emerald" | "crimson" | "glass";
-// interface Event { id: string; title: string; time: string; date: string; location: string; department: string; description: string; image: any; }
-
-
 const CATEGORIES = ["All", "Tech", "Cultural", "Music", "Workshop"];
+const STORAGE_KEY = "bookmarked_events"; // Must match key in details page
 
 // --- THEME CONFIGURATION ---
 const ThemeColors = {
@@ -43,6 +37,8 @@ const ThemeColors = {
     chipTextActive: "#000000",
     iconColor: "#666666",
     profileBorder: "#333333",
+    heartActive: "#E74C3C", // Red for heart
+    heartBg: "rgba(231, 76, 60, 0.2)",
   },
   light: {
     background: "#F2F2F7",
@@ -56,6 +52,8 @@ const ThemeColors = {
     chipTextActive: "#FFFFFF",
     iconColor: "#8E8E93",
     profileBorder: "#D1D1D6",
+    heartActive: "#E74C3C",
+    heartBg: "rgba(231, 76, 60, 0.1)",
   },
 };
 
@@ -79,7 +77,6 @@ const CategoryChip = ({
         {
           backgroundColor: isActive ? colors.chipActive : colors.chipDefault,
           borderColor: isActive ? colors.chipActive : colors.profileBorder,
-          // Add shadow for light mode visibility
           shadowColor: "#000",
           shadowOpacity: isActive ? 0.2 : 0.05,
           shadowRadius: 5,
@@ -106,13 +103,41 @@ export default function EventsScreen() {
 
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
+  
+  // Bookmark Logic
+  const [bookmarkedIds, setBookmarkedIds] = useState<string[]>([]);
+  const [showBookmarked, setShowBookmarked] = useState(false);
+
+  // Load bookmarks whenever screen gains focus (returning from details)
+  useFocusEffect(
+    useCallback(() => {
+      const loadBookmarks = async () => {
+        try {
+          const stored = await AsyncStorage.getItem(STORAGE_KEY);
+          if (stored) {
+            setBookmarkedIds(JSON.parse(stored));
+          }
+        } catch (e) {
+          console.error("Failed to load bookmarks", e);
+        }
+      };
+      loadBookmarks();
+    }, [])
+  );
 
   // Filter Logic
   const filteredEvents = useMemo(() => {
     return EVENTS.filter((e) => {
+      // 1. Filter by Bookmark (if enabled)
+      if (showBookmarked && !bookmarkedIds.includes(e.id)) {
+        return false;
+      }
+
+      // 2. Filter by Category
       const matchesCategory =
         selectedCategory === "All" || e.category === selectedCategory;
       
+      // 3. Filter by Search
       const query = searchQuery.toLowerCase();
       const matchesSearch =
         e.title.toLowerCase().includes(query) ||
@@ -121,7 +146,7 @@ export default function EventsScreen() {
 
       return matchesCategory && matchesSearch;
     });
-  }, [selectedCategory, searchQuery]);
+  }, [selectedCategory, searchQuery, showBookmarked, bookmarkedIds]);
 
   return (
     <SafeAreaView
@@ -151,7 +176,7 @@ export default function EventsScreen() {
           </Pressable>
         </View>
 
-        {/* Working Search Bar */}
+        {/* Search Bar */}
         <View
           style={[
             S.searchBar,
@@ -177,14 +202,36 @@ export default function EventsScreen() {
           )}
         </View>
 
-        {/* Categories */}
+        {/* Categories + Heart Filter */}
         <View style={{ height: 50 }}>
-          <FlatList
+          <FlatList style={{}}
             data={CATEGORIES}
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={S.categoryList}
             keyExtractor={(item) => item}
+            // Add Heart Chip at the start
+            ListHeaderComponent={
+              <Pressable 
+                onPress={() => setShowBookmarked(!showBookmarked)}
+                style={[
+                  S.iconChip,
+                  {
+                    backgroundColor: showBookmarked ? colors.heartBg : colors.chipDefault,
+                    borderColor: showBookmarked ? colors.heartActive : colors.profileBorder,
+                    height: 50,
+                    width: 50,
+                    borderRadius: 18
+                  }
+                ]}
+              >
+                <Ionicons 
+                  name={showBookmarked ? "heart" : "heart-outline"} 
+                  size={28} 
+                  color={showBookmarked ? colors.heartActive : colors.iconColor} 
+                />
+              </Pressable>
+            }
             renderItem={({ item }) => (
               <CategoryChip
                 label={item}
@@ -212,12 +259,12 @@ export default function EventsScreen() {
         ListEmptyComponent={
           <View style={S.emptyState}>
             <Ionicons
-              name="calendar-outline"
+              name={showBookmarked ? "heart-dislike-outline" : "calendar-outline"}
               size={50}
               color={colors.iconColor}
             />
             <Text style={[S.emptyText, { color: colors.textSecondary }]}>
-              No events found.
+              {showBookmarked ? "No saved events yet." : "No events found."}
             </Text>
             <Text
               style={{
@@ -226,7 +273,9 @@ export default function EventsScreen() {
                 marginTop: 4,
               }}
             >
-              Try clearing your search or filters.
+              {showBookmarked 
+               ? "Go back and save some events you like!" 
+               : "Try clearing your search or filters."}
             </Text>
           </View>
         }
@@ -269,7 +318,7 @@ const S = StyleSheet.create({
     width: 45,
     height: 45,
     borderRadius: 25,
-    backgroundColor: '#ccc', // fallback
+    backgroundColor: '#ccc',
   },
   searchBar: {
     flexDirection: "row",
@@ -288,7 +337,17 @@ const S = StyleSheet.create({
   },
   categoryList: {
     paddingRight: 20,
-    gap: 10,
+    // gap: 10, // 'gap' works in newer RN versions, check if supported in your environment
+  },
+  // New Style for the Heart Icon Chip
+  iconChip: {
+    width: 40,
+    height: 38, // Match height roughly with text chips
+    borderRadius: 20,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10, // Margin right because it's before the list items
   },
   chip: {
     paddingVertical: 8,
