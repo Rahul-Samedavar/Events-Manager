@@ -1,4 +1,4 @@
-import { Image } from "expo-image";
+import { Image } from "expo-image"; // If you use standard RN Image, change this import
 import { Link } from "expo-router";
 import { useRef, useState } from "react";
 import {
@@ -9,9 +9,10 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  useColorScheme,
   View,
 } from "react-native";
+
+import { isDarkTheme } from "@/hooks/use-theme-color";
 
 export type Event = {
   id: string;
@@ -39,7 +40,7 @@ export const defaultEvent: Event = {
   date: "3rd Jul",
   location: "SDJ Auditorium",
   department: "Cultural",
-  image: require("@/assets/event-placeholder.png"),
+  image: require("@/assets/event-placeholder.png"), // Update with your asset path
   description:
     "Join us for an inspiring talk on the evolving landscape of artificial intelligence and its impact on everyday life.",
 };
@@ -54,7 +55,7 @@ const THEMES = {
       border: "#bc8e0497",
       accent: "#FDFBD4",
       desc: "#ffffff",
-      gloss: "rgba(255,255,255,0.5)", // Bright strip
+      gloss: "rgba(255,255,255,0.5)",
     },
     dark: {
       bg: DARK_SURFACE,
@@ -139,8 +140,7 @@ export default function EventCard({
   event = defaultEvent,
   theme = "gold",
 }: Props) {
-  const scheme = useColorScheme();
-  const isDark = scheme === "dark";
+  const isDark = isDarkTheme();
   const activeTheme = THEMES[theme][isDark ? "dark" : "light"];
 
   /* ================= State ================= */
@@ -206,8 +206,8 @@ export default function EventCard({
     const normalizedX = (locationX / width - 0.5) * 2;
     const normalizedY = (locationY / height - 0.5) * 2;
 
-    const xTilt = normalizedY * -15; 
-    const yTilt = normalizedX * 15; 
+    const xTilt = normalizedY * -15;
+    const yTilt = normalizedX * 15;
 
     Animated.parallel([
       Animated.spring(rotateX, {
@@ -249,22 +249,15 @@ export default function EventCard({
   };
 
   /* ================= Interpolations ================= */
-
-  // 1. Gloss Movement
-  // When rotating Y (Left/Right tilt), move the gloss strip horizontally.
-  // Inverse logic: Tilt Left (-20) -> Gloss moves Right (+280).
   const glossTranslateX = rotateY.interpolate({
     inputRange: [-20, 20],
-    outputRange: [280, -280], 
+    outputRange: [280, -280],
     extrapolate: "clamp",
   });
 
-  // 2. Gloss Opacity (The Fix for stdlib error)
-  // We want opacity to be low (0.3) when flat (0 deg), and high (1.0) when tilted (-20 or 20).
-  // We use a V-shaped outputRange.
   const glossOpacity = rotateY.interpolate({
     inputRange: [-20, 0, 20],
-    outputRange: [1, 0.3, 1], 
+    outputRange: [1, 0.3, 1],
     extrapolate: "clamp",
   });
 
@@ -305,17 +298,15 @@ export default function EventCard({
   };
 
   const glossTransform = {
-    transform: [
-      { rotateZ: "25deg" }, // Angled strip
-      { translateX: glossTranslateX },
-    ],
+    transform: [{ rotateZ: "25deg" }, { translateX: glossTranslateX }],
     opacity: glossOpacity,
   };
 
   /* ================= Styles ================= */
   const S = StyleSheet.create({
     card: {
-      maxWidth: 450,
+      width: "100%", // FIXED: Ensures it fits mobile padding logic
+      maxWidth: 350,
       backgroundColor: activeTheme.bg,
       borderRadius: 20,
       padding: 20,
@@ -326,11 +317,11 @@ export default function EventCard({
       shadowOpacity: 0.15,
       shadowRadius: 14,
       shadowOffset: { width: 0, height: 8 },
-      overflow: "hidden", // Clips the strip
+      overflow: "hidden",
     },
-    // Fix 1: Wrap content to manage pointerEvents
+    // FIXED: Removed 'flex: 1'. Content now dictates height, preventing vertical stretch.
     content: {
-      flex: 1, 
+      // Intentionally empty or just padding adjustments if needed
     },
     image: {
       height: 160,
@@ -338,6 +329,7 @@ export default function EventCard({
       marginBottom: 14,
       borderWidth: 1,
       borderColor: activeTheme.border,
+      backgroundColor: "#333", // Fallback color
     },
     title: {
       fontSize: 20,
@@ -363,17 +355,15 @@ export default function EventCard({
       color: activeTheme.accent,
       fontWeight: "600",
     },
-    // Fix 2: Gloss is now a narrow strip
     gloss: {
       position: "absolute",
-      width: 60, 
-      height: "200%", // Very tall to cover diagonals
-      top: "-50%", 
+      width: 60,
+      height: "200%",
+      top: "-50%",
       left: "50%",
-      marginLeft: -30, // Center alignment
+      marginLeft: -30,
       backgroundColor: activeTheme.gloss,
       zIndex: 10,
-      // Optional: Add a subtle shadow for a "soft light" edge
       shadowColor: "#FFF",
       shadowOffset: { width: 0, height: 0 },
       shadowOpacity: 0.5,
@@ -391,23 +381,29 @@ export default function EventCard({
           onMouseMove={onMove}
           onMouseLeave={resetHover}
         >
-          {/* Gloss Strip */}
-          <Animated.View 
-            style={[S.gloss, glossTransform]} 
-            pointerEvents="none" 
+          <Animated.View
+            style={[S.gloss, glossTransform]}
+            pointerEvents="none"
           />
-          
-          {/* Content Wrapper - Pointer Events None ensures touches pass through to Card */}
+
           <View style={S.content} pointerEvents="none">
             <Animated.View style={imageTransform}>
-              <Image source={event.image} style={S.image} />
+              <Image
+                source={event.image}
+                style={S.image}
+                contentFit="cover" // For expo-image
+                // @ts-ignore: React Native Image prop fallback
+                resizeMode="cover" 
+              />
             </Animated.View>
 
             <Text style={S.title}>{event.title}</Text>
             <Text style={S.dept}>{event.department}</Text>
             <Text style={S.desc}>{event.description}</Text>
 
-            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+            <View
+              style={{ flexDirection: "row", justifyContent: "space-between" }}
+            >
               <Text style={S.label}>{event.date}</Text>
               <Text style={S.label}>{event.time}</Text>
               <Text style={S.label}>{event.location}</Text>
