@@ -37,7 +37,12 @@ export default function EventScreen() {
       </ThemedView>
 
 
-      <EventCard styleType="glossyGold" event={defaultEvent}/>
+<EventCard theme="gold" />
+<EventCard theme="midnight" />
+<EventCard theme="emerald" />
+<EventCard theme="crimson" />
+<EventCard theme="glass" />
+
 
 
     </ParallaxScrollView>

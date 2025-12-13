@@ -1,9 +1,17 @@
-import { Link } from 'expo-router';
-import { Pressable, View, Text, StyleSheet, useColorScheme } from 'react-native';
-import { Image } from 'expo-image';
-
-import { router } from 'expo-router';
-
+import { Image } from "expo-image";
+import { Link } from "expo-router";
+import { useRef, useState } from "react";
+import {
+  Animated,
+  GestureResponderEvent,
+  LayoutChangeEvent,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  useColorScheme,
+  View,
+} from "react-native";
 
 export type Event = {
   id: string;
@@ -12,106 +20,400 @@ export type Event = {
   date: string;
   location: string;
   department: string;
-  image: string;         
+  image: any;
   description: string;
 };
 
-export const defaultEvent: Event = {
-    id: "default",
-    title: 'Keynote: The Future of AI',
-    time: '10:30 AM – 11:30 AM',
-    date: "03-02-2025",
-    location: 'SDJ Auditorium',
-    department: 'Cultural',    
-    image: require('@/assets/event-placeholder.png'),
-    description:
-      'Join us for an inspiring talk on the evolving landscape of artificial intelligence and its impact on everyday life.',
-  };
+export type EventCardTheme =
+  | "gold"
+  | "midnight"
+  | "emerald"
+  | "crimson"
+  | "glass";
 
-type Props = {
-  event: Event;
-  styleType?: 'glossyGold' | 'classic' | 'minimal';
+/* ================= Default Event ================= */
+export const defaultEvent: Event = {
+  id: "default",
+  title: "Keynote: The Future of AI",
+  time: "10:30 AM – 11:30 AM",
+  date: "3rd Jul",
+  location: "SDJ Auditorium",
+  department: "Cultural",
+  image: require("@/assets/event-placeholder.png"),
+  description:
+    "Join us for an inspiring talk on the evolving landscape of artificial intelligence and its impact on everyday life.",
 };
 
-export default function EventCard({ event, styleType = 'classic' }: Props) {
+/* ================= Themes ================= */
+const DARK_SURFACE = "#1A1A1A";
+
+const THEMES = {
+  gold: {
+    light: {
+      bg: "#BF9B30",
+      border: "#bc8e0497",
+      accent: "#FDFBD4",
+      desc: "#ffffff",
+      gloss: "rgba(255,255,255,0.5)", // Bright strip
+    },
+    dark: {
+      bg: DARK_SURFACE,
+      border: "#DBC15A",
+      accent: "#DBC15A",
+      desc: "#ffffff",
+      gloss: "rgba(255,255,255,0.3)",
+    },
+  },
+  midnight: {
+    light: {
+      bg: "#0E1628",
+      border: "#2B3A67",
+      accent: "#E6ECFF",
+      desc: "#E6ECFF",
+      gloss: "rgba(220,230,255,0.4)",
+    },
+    dark: {
+      bg: DARK_SURFACE,
+      border: "#7A8BFF",
+      accent: "#9FB2FF",
+      desc: "#E6ECFF",
+      gloss: "rgba(180,200,255,0.25)",
+    },
+  },
+  emerald: {
+    light: {
+      bg: "#0F3D2E",
+      border: "#2FA97C",
+      accent: "#DFF6EE",
+      desc: "#E9FFF8",
+      gloss: "rgba(180,255,220,0.4)",
+    },
+    dark: {
+      bg: DARK_SURFACE,
+      border: "#34CFA0",
+      accent: "#63D9B5",
+      desc: "#E9FFF8",
+      gloss: "rgba(160,255,220,0.25)",
+    },
+  },
+  crimson: {
+    light: {
+      bg: "#4A0E14",
+      border: "#D64550",
+      accent: "#FFE6E8",
+      desc: "#FFEFF1",
+      gloss: "rgba(255,180,200,0.45)",
+    },
+    dark: {
+      bg: DARK_SURFACE,
+      border: "#E75A67",
+      accent: "#FF9BA5",
+      desc: "#FFEFF1",
+      gloss: "rgba(255,180,200,0.3)",
+    },
+  },
+  glass: {
+    light: {
+      bg: "rgba(240,240,240,0.6)",
+      border: "rgba(0,0,0,0.18)",
+      accent: "#1A1A1A",
+      desc: "#2A2A2A",
+      gloss: "rgba(255,255,255,0.6)",
+    },
+    dark: {
+      bg: "rgba(20,20,20,0.6)",
+      border: "rgba(255,255,255,0.25)",
+      accent: "#FFFFFF",
+      desc: "#EDEDED",
+      gloss: "rgba(255,255,255,0.35)",
+    },
+  },
+} as const;
+
+type Props = {
+  event?: Event;
+  theme?: EventCardTheme;
+};
+
+export default function EventCard({
+  event = defaultEvent,
+  theme = "gold",
+}: Props) {
   const scheme = useColorScheme();
-  if (!event) event = defaultEvent;
+  const isDark = scheme === "dark";
+  const activeTheme = THEMES[theme][isDark ? "dark" : "light"];
 
-  const isDark = scheme === 'dark';
+  /* ================= State ================= */
+  const [layout, setLayout] = useState({ width: 0, height: 0 });
 
-  const colors = {
-    bg: isDark ? '#1A1A1A' : '#BF9B30',
-    border: isDark ? '#DBC15A' : '#bc8e0497',
-    title: isDark ? '#DBC15A' : '#FDFBD4',
-    label: isDark ? '#DBC15A' : '#FDFBD4',
-    dept: isDark ? '#DBC15A' : '#FDFBD4',
-    desc: isDark ? '#ffffff' : '#ffffff',
+  /* ================= Animated Values ================= */
+  const rotateX = useRef(new Animated.Value(0)).current;
+  const rotateY = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  /* ================= Interaction Handlers ================= */
+  const handleLayout = (e: LayoutChangeEvent) => {
+    const { width, height } = e.nativeEvent.layout;
+    setLayout({ width, height });
   };
 
+  const onMove = (e: any) => {
+    if (Platform.OS !== "web") return;
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    const dx = (x / rect.width - 0.5) * 30;
+    const dy = (y / rect.height - 0.5) * -30;
+
+    Animated.parallel([
+      Animated.spring(rotateX, {
+        toValue: dy,
+        useNativeDriver: true,
+        friction: 8,
+      }),
+      Animated.spring(rotateY, {
+        toValue: dx,
+        useNativeDriver: true,
+        friction: 8,
+      }),
+    ]).start();
+  };
+
+  const resetHover = () => {
+    if (Platform.OS !== "web") return;
+    Animated.parallel([
+      Animated.spring(rotateX, { toValue: 0, useNativeDriver: true }),
+      Animated.spring(rotateY, { toValue: 0, useNativeDriver: true }),
+    ]).start();
+  };
+
+  const onPressIn = (e: GestureResponderEvent) => {
+    Animated.spring(scaleAnim, {
+      toValue: 0.96,
+      useNativeDriver: true,
+      friction: 5,
+    }).start();
+
+    if (Platform.OS === "web") return;
+
+    const { locationX, locationY } = e.nativeEvent;
+    const { width, height } = layout;
+
+    if (width === 0 || height === 0) return;
+
+    const normalizedX = (locationX / width - 0.5) * 2;
+    const normalizedY = (locationY / height - 0.5) * 2;
+
+    const xTilt = normalizedY * -15; 
+    const yTilt = normalizedX * 15; 
+
+    Animated.parallel([
+      Animated.spring(rotateX, {
+        toValue: xTilt,
+        useNativeDriver: true,
+        friction: 6,
+        tension: 50,
+      }),
+      Animated.spring(rotateY, {
+        toValue: yTilt,
+        useNativeDriver: true,
+        friction: 6,
+        tension: 50,
+      }),
+    ]).start();
+  };
+
+  const onPressOut = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+      friction: 5,
+    }).start();
+
+    if (Platform.OS === "web") return;
+
+    Animated.parallel([
+      Animated.spring(rotateX, {
+        toValue: 0,
+        useNativeDriver: true,
+        friction: 5,
+      }),
+      Animated.spring(rotateY, {
+        toValue: 0,
+        useNativeDriver: true,
+        friction: 5,
+      }),
+    ]).start();
+  };
+
+  /* ================= Interpolations ================= */
+
+  // 1. Gloss Movement
+  // When rotating Y (Left/Right tilt), move the gloss strip horizontally.
+  // Inverse logic: Tilt Left (-20) -> Gloss moves Right (+280).
+  const glossTranslateX = rotateY.interpolate({
+    inputRange: [-20, 20],
+    outputRange: [280, -280], 
+    extrapolate: "clamp",
+  });
+
+  // 2. Gloss Opacity (The Fix for stdlib error)
+  // We want opacity to be low (0.3) when flat (0 deg), and high (1.0) when tilted (-20 or 20).
+  // We use a V-shaped outputRange.
+  const glossOpacity = rotateY.interpolate({
+    inputRange: [-20, 0, 20],
+    outputRange: [1, 0.3, 1], 
+    extrapolate: "clamp",
+  });
+
+  const cardTransform = {
+    transform: [
+      { perspective: 1000 },
+      { scale: scaleAnim },
+      {
+        rotateX: rotateX.interpolate({
+          inputRange: [-20, 20],
+          outputRange: ["-20deg", "20deg"],
+        }),
+      },
+      {
+        rotateY: rotateY.interpolate({
+          inputRange: [-20, 20],
+          outputRange: ["-20deg", "20deg"],
+        }),
+      },
+    ],
+  };
+
+  const imageTransform = {
+    transform: [
+      {
+        translateY: rotateX.interpolate({
+          inputRange: [-20, 20],
+          outputRange: [-12, 12],
+        }),
+      },
+      {
+        translateX: rotateY.interpolate({
+          inputRange: [-20, 20],
+          outputRange: [12, -12],
+        }),
+      },
+    ],
+  };
+
+  const glossTransform = {
+    transform: [
+      { rotateZ: "25deg" }, // Angled strip
+      { translateX: glossTranslateX },
+    ],
+    opacity: glossOpacity,
+  };
+
+  /* ================= Styles ================= */
   const S = StyleSheet.create({
     card: {
       maxWidth: 450,
-      maxHeight: 450,
-      backgroundColor: colors.bg,
-      borderRadius: 18,
+      backgroundColor: activeTheme.bg,
+      borderRadius: 20,
       padding: 20,
-      paddingBottom: 10,
       borderWidth: 1,
-      borderColor: colors.border,
-      elevation: 6,
-      shadowColor: '#000',
-      shadowOpacity: 0.12,
-      shadowRadius: 8,
-      shadowOffset: { width: 0, height: 4 },
+      borderColor: activeTheme.border,
+      elevation: 10,
+      shadowColor: "#000",
+      shadowOpacity: 0.15,
+      shadowRadius: 14,
+      shadowOffset: { width: 0, height: 8 },
+      overflow: "hidden", // Clips the strip
+    },
+    // Fix 1: Wrap content to manage pointerEvents
+    content: {
+      flex: 1, 
     },
     image: {
       height: 160,
-      borderRadius: 12,
+      borderRadius: 14,
       marginBottom: 14,
       borderWidth: 1,
-      borderColor: colors.border,
+      borderColor: activeTheme.border,
     },
     title: {
       fontSize: 20,
-      fontWeight: '700',
-      color: colors.title,
+      fontWeight: "700",
+      color: activeTheme.accent,
       marginBottom: 4,
-      textShadowColor: colors.bg,
-      textShadowOffset: { width: 0, height: 1 },
-      textShadowRadius: 2,
     },
-    label: { fontSize: 13, color: colors.label, fontWeight: 600 },
-    dept: { fontSize: 16, color: colors.dept, marginTop: 4, fontWeight: 600, textAlign: 'right' },
-    desc: { marginTop: 8, color: colors.desc, lineHeight: 22, textAlign: 'justify', marginBottom: 8 },
-    leak: {
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.22)',
-      borderRadius: 18,
+    dept: {
+      fontSize: 15,
+      color: activeTheme.accent,
+      fontWeight: "600",
+      textAlign: "right",
+    },
+    desc: {
+      marginTop: 8,
+      color: activeTheme.desc,
+      lineHeight: 22,
+      textAlign: "justify",
+      marginBottom: 8,
+    },
+    label: {
+      fontSize: 11,
+      color: activeTheme.accent,
+      fontWeight: "600",
+    },
+    // Fix 2: Gloss is now a narrow strip
+    gloss: {
+      position: "absolute",
+      width: 60, 
+      height: "200%", // Very tall to cover diagonals
+      top: "-50%", 
+      left: "50%",
+      marginLeft: -30, // Center alignment
+      backgroundColor: activeTheme.gloss,
+      zIndex: 10,
+      // Optional: Add a subtle shadow for a "soft light" edge
+      shadowColor: "#FFF",
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.5,
+      shadowRadius: 15,
+      elevation: 5,
     },
   });
 
   return (
-    <Link href={`/events/${event.id}`} style={{display: "contents"}} asChild> 
-      {/* asChild lets Pressable become the clickable area */}
-      <Pressable style={{ width: "100%" }}>
-        <View style={S.card}>
-          <View style={S.leak} />
+    <Link href={`/events/${event.id}`} asChild>
+      <Pressable onPressIn={onPressIn} onPressOut={onPressOut}>
+        <Animated.View
+          style={[S.card, cardTransform]}
+          onLayout={handleLayout}
+          onMouseMove={onMove}
+          onMouseLeave={resetHover}
+        >
+          {/* Gloss Strip */}
+          <Animated.View 
+            style={[S.gloss, glossTransform]} 
+            pointerEvents="none" 
+          />
+          
+          {/* Content Wrapper - Pointer Events None ensures touches pass through to Card */}
+          <View style={S.content} pointerEvents="none">
+            <Animated.View style={imageTransform}>
+              <Image source={event.image} style={S.image} />
+            </Animated.View>
 
-          <Image source={event.image} style={S.image} />
+            <Text style={S.title}>{event.title}</Text>
+            <Text style={S.dept}>{event.department}</Text>
+            <Text style={S.desc}>{event.description}</Text>
 
-          <Text style={S.title}>{event.title}</Text>
-          <Text style={S.dept}>{event.department}</Text>
-          <Text style={S.desc}>{event.description}</Text>
-
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <Text style={S.label}>{event.date}  {event.time}</Text>
-            <Text style={S.label}>{event.location}</Text>
+            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+              <Text style={S.label}>{event.date}</Text>
+              <Text style={S.label}>{event.time}</Text>
+              <Text style={S.label}>{event.location}</Text>
+            </View>
           </View>
-        </View>
+        </Animated.View>
       </Pressable>
     </Link>
   );
