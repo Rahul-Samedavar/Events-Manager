@@ -1,4 +1,4 @@
-import { Image } from "expo-image"; // If you use standard RN Image, change this import
+import { Image } from "expo-image";
 import { Link } from "expo-router";
 import { useRef, useState } from "react";
 import {
@@ -12,40 +12,10 @@ import {
   View,
 } from "react-native";
 
+// Assuming types are updated in this file as per your description
 import { isDarkTheme } from "@/hooks/use-theme-color";
+import { defaultEvent, Event, EventCardTheme } from "@/libs/events";
 
-export type Event = {
-  id: string;
-  title: string;
-  time: string;
-  date: string;
-  location: string;
-  department: string;
-  image: any;
-  description: string;
-};
-
-export type EventCardTheme =
-  | "gold"
-  | "midnight"
-  | "emerald"
-  | "crimson"
-  | "glass";
-
-/* ================= Default Event ================= */
-export const defaultEvent: Event = {
-  id: "default",
-  title: "Keynote: The Future of AI",
-  time: "10:30 AM – 11:30 AM",
-  date: "3rd Jul",
-  location: "SDJ Auditorium",
-  department: "Cultural",
-  image: require("@/assets/event-placeholder.png"), // Update with your asset path
-  description:
-    "Join us for an inspiring talk on the evolving landscape of artificial intelligence and its impact on everyday life.",
-};
-
-/* ================= Themes ================= */
 const DARK_SURFACE = "#1A1A1A";
 
 const THEMES = {
@@ -136,12 +106,53 @@ type Props = {
   theme?: EventCardTheme;
 };
 
+// Helper to format Date: "2 Aug"
+const formatDate = (dateInput: Date | string) => {
+  const date = new Date(dateInput);
+  const months = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
+  return `${date.getDate()} ${months[date.getMonth()]}`;
+};
+
+// Helper to format Time: "11:00 AM"
+const formatTime = (dateInput: Date | string) => {
+  const date = new Date(dateInput);
+  let hours = date.getHours();
+  const minutes = date.getMinutes();
+  const ampm = hours >= 12 ? "PM" : "AM";
+
+  hours = hours % 12;
+  hours = hours ? hours : 12; // the hour '0' should be '12'
+  const minutesStr = minutes < 10 ? "0" + minutes : minutes;
+
+  return `${hours}:${minutesStr} ${ampm}`;
+};
+
 export default function EventCard({
   event = defaultEvent,
   theme = "gold",
 }: Props) {
   const isDark = isDarkTheme();
   const activeTheme = THEMES[theme][isDark ? "dark" : "light"];
+
+  /* ================= Logic Update ================= */
+  // We process the `fromdate` to get the display strings
+  const displayDate = formatDate(event.fromdate);
+  const displayTimef = formatTime(event.fromdate);
+  const displayTimet = formatTime(event.todate);
+  const displayTime = `${displayTimef} - ${displayTimet}`;
 
   /* ================= State ================= */
   const [layout, setLayout] = useState({ width: 0, height: 0 });
@@ -305,7 +316,7 @@ export default function EventCard({
   /* ================= Styles ================= */
   const S = StyleSheet.create({
     card: {
-      width: "100%", // FIXED: Ensures it fits mobile padding logic
+      width: "100%",
       maxWidth: 350,
       backgroundColor: activeTheme.bg,
       borderRadius: 20,
@@ -319,17 +330,14 @@ export default function EventCard({
       shadowOffset: { width: 0, height: 8 },
       overflow: "hidden",
     },
-    // FIXED: Removed 'flex: 1'. Content now dictates height, preventing vertical stretch.
-    content: {
-      // Intentionally empty or just padding adjustments if needed
-    },
+    content: {},
     image: {
       height: 160,
       borderRadius: 14,
       marginBottom: 14,
       borderWidth: 1,
       borderColor: activeTheme.border,
-      backgroundColor: "#333", // Fallback color
+      backgroundColor: "#333",
     },
     title: {
       fontSize: 20,
@@ -373,7 +381,7 @@ export default function EventCard({
   });
 
   return (
-    <Link href={`/events/${event.id}`} asChild>
+    <Link href={`/events/${event.id}?id=${event.id}`} asChild>
       <Pressable onPressIn={onPressIn} onPressOut={onPressOut}>
         <Animated.View
           style={[S.card, cardTransform]}
@@ -391,9 +399,9 @@ export default function EventCard({
               <Image
                 source={event.image}
                 style={S.image}
-                contentFit="cover" // For expo-image
-                // @ts-ignore: React Native Image prop fallback
-                resizeMode="cover" 
+                contentFit="cover"
+                // @ts-ignore
+                resizeMode="cover"
               />
             </Animated.View>
 
@@ -404,8 +412,8 @@ export default function EventCard({
             <View
               style={{ flexDirection: "row", justifyContent: "space-between" }}
             >
-              <Text style={S.label}>{event.date}</Text>
-              <Text style={S.label}>{event.time}</Text>
+              <Text style={S.label}>{displayDate}</Text>
+              <Text style={S.label}>{displayTime}</Text>
               <Text style={S.label}>{event.location}</Text>
             </View>
           </View>

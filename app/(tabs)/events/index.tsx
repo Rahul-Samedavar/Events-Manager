@@ -19,86 +19,13 @@ import {
 
 // If you have the real component, keep these imports.
 // If not, comment them out and use the MOCK COMPONENT defined at the bottom of this file.
-import EventCard, { Event, EventCardTheme } from "@/components/ui/eventcard";
+import { EVENTS , EventCardTheme} from "@/libs/events";
+import EventCard from "@/components/ui/eventcard";
 
 // --- TYPES (If not imported) ---
 // type EventCardTheme = "midnight" | "gold" | "emerald" | "crimson" | "glass";
 // interface Event { id: string; title: string; time: string; date: string; location: string; department: string; description: string; image: any; }
 
-const MOCK_EVENTS: (Event & { theme: EventCardTheme; category: string })[] = [
-  {
-    id: "1",
-    title: "Cyberpunk: AI Revolution",
-    time: "10:00 AM",
-    date: "12 Oct",
-    location: "Main Auditorium",
-    department: "Tech",
-    category: "Tech",
-    description: "Explore the neon-lit future of generative AI and its ethical implications.",
-    image: { uri: "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?q=80&w=1000&auto=format&fit=crop" },
-    theme: "midnight",
-  },
-  {
-    id: "2",
-    title: "Golden Era Jazz Night",
-    time: "07:00 PM",
-    date: "12 Oct",
-    location: "Open Air Theatre",
-    department: "Music",
-    category: "Cultural",
-    description: "A soulful evening paying tribute to the legends of Jazz with live saxophone.",
-    image: { uri: "https://images.unsplash.com/photo-1511192336575-5a79af67a629?q=80&w=1000&auto=format&fit=crop" },
-    theme: "gold",
-  },
-  {
-    id: "3",
-    title: "Eco-Future Workshop",
-    time: "02:00 PM",
-    date: "13 Oct",
-    location: "Green Hall",
-    department: "Science",
-    category: "Workshop",
-    description: "Hands-on workshop on sustainable living, zero-waste strategies, and urban farming.",
-    image: { uri: "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?q=80&w=1000&auto=format&fit=crop" },
-    theme: "emerald",
-  },
-  {
-    id: "4",
-    title: "Red Velvet Gala",
-    time: "08:30 PM",
-    date: "14 Oct",
-    location: "Grand Ballroom",
-    department: "Fashion",
-    category: "Cultural",
-    description: "The biggest fashion showcase of the year featuring avant-garde designs in crimson.",
-    image: { uri: "https://images.unsplash.com/photo-1500917293891-ef795e70e1f6?q=80&w=1000&auto=format&fit=crop" },
-    theme: "crimson",
-  },
-  {
-    id: "5",
-    title: "Minimalist Design Talk",
-    time: "11:00 AM",
-    date: "15 Oct",
-    location: "Design Studio",
-    department: "Art",
-    category: "Workshop",
-    description: "Less is more. A deep dive into the philosophy of subtraction in modern UI/UX design.",
-    image: { uri: "https://images.unsplash.com/photo-1507643179173-617d6a1366a6?q=80&w=1000&auto=format&fit=crop" },
-    theme: "glass",
-  },
-  {
-    id: "6",
-    title: "Hackathon: Code Red",
-    time: "09:00 AM",
-    date: "16 Oct",
-    location: "Tech Labs",
-    department: "Coding",
-    category: "Tech",
-    description: "24-hour coding marathon. Build, break, and deploy solutions for real-world crisis.",
-    image: { uri: "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?q=80&w=1000&auto=format&fit=crop" },
-    theme: "crimson",
-  },
-];
 
 const CATEGORIES = ["All", "Tech", "Cultural", "Music", "Workshop"];
 
@@ -182,7 +109,7 @@ export default function EventsScreen() {
 
   // Filter Logic
   const filteredEvents = useMemo(() => {
-    return MOCK_EVENTS.filter((e) => {
+    return EVENTS.filter((e) => {
       const matchesCategory =
         selectedCategory === "All" || e.category === selectedCategory;
       
