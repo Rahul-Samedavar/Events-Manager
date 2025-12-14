@@ -1,26 +1,38 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Calendar from "expo-calendar";
 import { Image } from "expo-image";
+import * as Notifications from "expo-notifications"; // CHANGED: Import Notifications
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
   Alert,
+  Modal, // Added for the selection menu
   Platform,
   ScrollView,
   StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import Markdown, { RenderRules } from "react-native-markdown-display";
-// Use Safe Area Context for precise Android notches
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // Mock Data Import
 import { isDarkTheme } from "@/hooks/use-theme-color";
 import { EVENTS } from "@/libs/events";
+
+// --- Notification Handler Configuration ---
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+    shouldShowBanner: true, // Added: Required for newer types
+    shouldShowList: true, // Added: Required for newer types
+  }),
+});
 
 // Theme Colors
 const COLORS = {
@@ -32,6 +44,7 @@ const COLORS = {
     card: "#F5F5F5",
     border: "#E0E0E0",
     codeBg: "#ECECEC",
+    modalOverlay: "rgba(0,0,0,0.5)",
   },
   dark: {
     bg: "#121212",
@@ -41,6 +54,7 @@ const COLORS = {
     card: "#1E1E1E",
     border: "#333333",
     codeBg: "#333333",
+    modalOverlay: "rgba(0,0,0,0.7)",
   },
   status: {
     live: "#E74C3C",
@@ -50,30 +64,38 @@ const COLORS = {
   },
 };
 
-const STORAGE_KEY = "bookmarked_events";
+const BOOKMARK_KEY = "bookmarked_events";
+const REMINDER_KEY_PREFIX = "reminder_event_"; // Key to store scheduled notification ID
 
 export default function EventDetailsPage() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
-  const insets = useSafeAreaInsets(); // Get notch heights
+  const insets = useSafeAreaInsets();
   const isDark = isDarkTheme();
   const theme = isDark ? COLORS.dark : COLORS.light;
 
   const [now, setNow] = useState(new Date());
   const [isBookmarked, setIsBookmarked] = useState(false);
 
+  // New States for Notifications
+  const [modalVisible, setModalVisible] = useState(false);
+  const [scheduledNotificationId, setScheduledNotificationId] = useState<
+    string | null
+  >(null);
+
   const event = EVENTS.find((e) => e.id === id);
 
-  // 1. Check Storage on Load
   useEffect(() => {
     checkBookmarkStatus();
+    checkReminderStatus(); // Check if we already have a reminder set
     const timer = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(timer);
   }, [id]);
 
+  // --- Logic: Bookmarks ---
   const checkBookmarkStatus = async () => {
     try {
-      const stored = await AsyncStorage.getItem(STORAGE_KEY);
+      const stored = await AsyncStorage.getItem(BOOKMARK_KEY);
       const bookmarks = stored ? JSON.parse(stored) : [];
       setIsBookmarked(bookmarks.includes(String(id)));
     } catch (error) {
@@ -81,13 +103,11 @@ export default function EventDetailsPage() {
     }
   };
 
-  // 2. Toggle Logic
   const toggleBookmark = async () => {
     try {
       const newStatus = !isBookmarked;
-      setIsBookmarked(newStatus); // Optimistic UI update
-
-      const stored = await AsyncStorage.getItem(STORAGE_KEY);
+      setIsBookmarked(newStatus);
+      const stored = await AsyncStorage.getItem(BOOKMARK_KEY);
       let bookmarks = stored ? JSON.parse(stored) : [];
       const eventId = String(id);
 
@@ -97,11 +117,138 @@ export default function EventDetailsPage() {
       } else {
         bookmarks = bookmarks.filter((savedId: string) => savedId !== eventId);
       }
-
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(bookmarks));
+      await AsyncStorage.setItem(BOOKMARK_KEY, JSON.stringify(bookmarks));
     } catch (error) {
-      Alert.alert("Error", "Could not save bookmark.");
-      setIsBookmarked(!isBookmarked); // Revert
+      setIsBookmarked(!isBookmarked);
+    }
+  };
+
+  // --- Logic: Notifications ---
+
+  const checkReminderStatus = async () => {
+    try {
+      const storedId = await AsyncStorage.getItem(REMINDER_KEY_PREFIX + id);
+      if (storedId) {
+        // Verify if it's still scheduled in system
+        const scheduled =
+          await Notifications.getAllScheduledNotificationsAsync();
+        const exists = scheduled.find((n) => n.identifier === storedId);
+        if (exists) {
+          setScheduledNotificationId(storedId);
+        } else {
+          // Clean up dead key
+          await AsyncStorage.removeItem(REMINDER_KEY_PREFIX + id);
+          setScheduledNotificationId(null);
+        }
+      }
+    } catch (e) {
+      console.log("Error checking reminder", e);
+    }
+  };
+
+  const scheduleNotification = async (minutesBefore: number, label: string) => {
+    if (!event) return;
+
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status !== "granted") {
+      const { status: newStatus } =
+        await Notifications.requestPermissionsAsync();
+      if (newStatus !== "granted") {
+        Alert.alert(
+          "Permission Required",
+          "Please enable notifications to set reminders."
+        );
+        return;
+      }
+    }
+
+    const triggerDate = new Date(
+      new Date(event.fromdate).getTime() - minutesBefore * 60000
+    );
+
+    if (triggerDate <= new Date()) {
+      Alert.alert("Invalid Time", "This time has already passed.");
+      return;
+    }
+
+    try {
+      if (scheduledNotificationId) {
+        await Notifications.cancelScheduledNotificationAsync(
+          scheduledNotificationId
+        );
+      }
+
+      const notificationId = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: `Upcoming: ${event.title}`,
+          body: `Event starts in ${label}. Location: ${event.location}`,
+          sound: true,
+          data: { eventId: id },
+        },
+        // FIX: Explicitly define type and date
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DATE,
+          date: triggerDate,
+        },
+      });
+
+      await AsyncStorage.setItem(REMINDER_KEY_PREFIX + id, notificationId);
+      setScheduledNotificationId(notificationId);
+      setModalVisible(false);
+
+      Alert.alert(
+        "Reminder Set",
+        `We'll notify you ${label} before the event.`
+      );
+    } catch (e) {
+      Alert.alert("Error", "Failed to schedule notification.");
+      console.error(e);
+    }
+  };
+
+  // NEW: Function to test immediate notification
+  const scheduleTestNotification = async () => {
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status !== "granted") {
+      await Notifications.requestPermissionsAsync();
+    }
+
+    // Schedule for 5 seconds from NOW (easier to test than 5 mins)
+    // If you strictly want 5 mins, change 5000 to (5 * 60 * 1000)
+    const triggerDate = new Date(Date.now() + 5000);
+
+    try {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: "Test Notification",
+          body: "This is a test to ensure notifications work on your device.",
+          sound: true,
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DATE,
+          date: triggerDate,
+        },
+      });
+      setModalVisible(false);
+      Alert.alert(
+        "Test Scheduled",
+        "You will receive a notification in 5 seconds. Close the app to test background behavior."
+      );
+    } catch (e) {
+      console.error(e);
+      Alert.alert("Error", "Failed to schedule test.");
+    }
+  };
+
+  const cancelReminder = async () => {
+    if (scheduledNotificationId) {
+      await Notifications.cancelScheduledNotificationAsync(
+        scheduledNotificationId
+      );
+      await AsyncStorage.removeItem(REMINDER_KEY_PREFIX + id);
+      setScheduledNotificationId(null);
+      setModalVisible(false);
+      Alert.alert("Cancelled", "Reminder removed.");
     }
   };
 
@@ -161,47 +308,9 @@ export default function EventDetailsPage() {
     )} - ${end.toLocaleTimeString("en-US", timeOptions)}`;
   };
 
-  const addToCalendar = async () => {
-    if (!event) return;
-    try {
-      const { status } = await Calendar.requestCalendarPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert(
-          "Permission Needed",
-          "We need calendar access to save this event."
-        );
-        return;
-      }
-      let calendarId;
-      if (Platform.OS === "ios") {
-        const defaultCalendar = await Calendar.getDefaultCalendarAsync();
-        calendarId = defaultCalendar.id;
-      } else {
-        const calendars = await Calendar.getCalendarsAsync(
-          Calendar.EntityTypes.EVENT
-        );
-        const defaultCalendar =
-          calendars.find((cal) => cal.isPrimary) || calendars[0];
-        calendarId = defaultCalendar?.id;
-      }
-      if (!calendarId) return;
-
-      await Calendar.createEventAsync(calendarId, {
-        title: event.title,
-        startDate: new Date(event.fromdate),
-        endDate: new Date(event.todate),
-        location: event.location,
-        notes: event.description,
-        timeZone: "GMT",
-      });
-      Alert.alert("Success", "Event added to your calendar!");
-    } catch (e) {
-      Alert.alert("Error", "Failed to add event to calendar.");
-    }
-  };
-
   if (!event) return null;
 
+  // --- Markdown Styles (Same as before) ---
   const markdownStyles = StyleSheet.create({
     body: {
       color: theme.text,
@@ -279,12 +388,17 @@ export default function EventDetailsPage() {
     ),
   };
 
+  // --- Notification Options Data ---
+  const notificationOptions = [
+    { label: "5 Minutes before", value: 5 },
+    { label: "10 Minutes before", value: 10 },
+    { label: "30 Minutes before", value: 30 },
+    { label: "1 Hour before", value: 60 },
+    { label: "1 Day before", value: 1440 },
+  ];
+
   return (
     <View style={[S.container, { backgroundColor: theme.bg }]}>
-      {/* 
-        1. HIDE DEFAULT HEADER 
-        We are making our own to guarantee it works on Android 
-      */}
       <Stack.Screen options={{ headerShown: false }} />
       <StatusBar
         barStyle="light-content"
@@ -314,7 +428,6 @@ export default function EventDetailsPage() {
               <Text style={[S.dept, { color: theme.primary }]}>
                 {event.department.toUpperCase()}
               </Text>
-
               {status && (
                 <View
                   style={[
@@ -337,7 +450,6 @@ export default function EventDetailsPage() {
                 </View>
               )}
             </View>
-
             <Text style={[S.title, { color: theme.text }]}>{event.title}</Text>
           </View>
 
@@ -391,16 +503,11 @@ export default function EventDetailsPage() {
         </View>
       </ScrollView>
 
-      {/* 
-        2. CUSTOM FLOATING HEADER 
-        This is placed AFTER ScrollView, so it floats on top (z-index).
-        It uses 'insets.top' so it never gets hidden behind the Android notch.
-      */}
+      {/* Floating Header */}
       <View style={[S.customHeader, { paddingTop: insets.top + 10 }]}>
         <TouchableOpacity onPress={() => router.back()} style={S.iconButton}>
           <Ionicons name="arrow-back" size={24} color="#FFF" />
         </TouchableOpacity>
-
         <TouchableOpacity onPress={toggleBookmark} style={S.iconButton}>
           <Ionicons
             name={isBookmarked ? "heart" : "heart-outline"}
@@ -410,6 +517,7 @@ export default function EventDetailsPage() {
         </TouchableOpacity>
       </View>
 
+      {/* Footer Button */}
       <View
         style={[
           S.footer,
@@ -417,30 +525,164 @@ export default function EventDetailsPage() {
         ]}
       >
         <TouchableOpacity
-          style={[S.calendarBtn, { backgroundColor: theme.primary }]}
-          onPress={addToCalendar}
+          style={[
+            S.calendarBtn,
+            {
+              backgroundColor: scheduledNotificationId
+                ? theme.card
+                : theme.primary,
+              borderWidth: scheduledNotificationId ? 2 : 0,
+              borderColor: theme.primary,
+            },
+          ]}
+          onPress={() => setModalVisible(true)}
           activeOpacity={0.8}
         >
           <Ionicons
-            name="notifications-outline"
+            name={
+              scheduledNotificationId
+                ? "notifications"
+                : "notifications-outline"
+            }
             size={20}
-            color={isDark ? "#000" : "#FFF"}
+            color={
+              scheduledNotificationId ? theme.primary : isDark ? "#000" : "#FFF"
+            }
             style={{ marginRight: 8 }}
           />
           <Text
-            style={[S.calendarBtnText, { color: isDark ? "#000" : "#FFF" }]}
+            style={[
+              S.calendarBtnText,
+              {
+                color: scheduledNotificationId
+                  ? theme.primary
+                  : isDark
+                  ? "#000"
+                  : "#FFF",
+              },
+            ]}
           >
-            Add to Calendar
+            {scheduledNotificationId ? "Reminder Set" : "Get Notified"}
           </Text>
         </TouchableOpacity>
       </View>
+
+      {/* REMINDER SELECTION MODAL */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setModalVisible(false)}>
+          <View
+            style={[S.modalOverlay, { backgroundColor: theme.modalOverlay }]}
+          >
+            <TouchableWithoutFeedback>
+              <View style={[S.modalContent, { backgroundColor: theme.bg }]}>
+                <View style={S.modalHeader}>
+                  <Text style={[S.modalTitle, { color: theme.text }]}>
+                    Set Reminder
+                  </Text>
+                  <TouchableOpacity onPress={() => setModalVisible(false)}>
+                    <Ionicons name="close" size={24} color={theme.muted} />
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={[S.modalSubtitle, { color: theme.muted }]}>
+                  When do you want to be notified?
+                </Text>
+
+                {/* ... inside the Modal View ... */}
+
+                <View style={{ marginTop: 10 }}>
+                  {notificationOptions.map((opt, index) => (
+                    <TouchableOpacity
+                      key={index}
+                      style={[S.optionRow, { borderBottomColor: theme.border }]}
+                      onPress={() => scheduleNotification(opt.value, opt.label)}
+                    >
+                      <Text style={[S.optionText, { color: theme.text }]}>
+                        {opt.label}
+                      </Text>
+                      <Ionicons
+                        name="chevron-forward"
+                        size={20}
+                        color={theme.muted}
+                      />
+                    </TouchableOpacity>
+                  ))}
+
+                  {/* NEW: Test Button */}
+                  <TouchableOpacity
+                    style={[
+                      S.optionRow,
+                      {
+                        borderBottomColor: theme.border,
+                        borderBottomWidth: 0,
+                        marginTop: 10,
+                      },
+                    ]}
+                    onPress={scheduleTestNotification}
+                  >
+                    <View
+                      style={{ flexDirection: "row", alignItems: "center" }}
+                    >
+                      <Ionicons
+                        name="bug-outline"
+                        size={18}
+                        color={theme.primary}
+                        style={{ marginRight: 10 }}
+                      />
+                      <Text
+                        style={[
+                          S.optionText,
+                          { color: theme.primary, fontWeight: "700" },
+                        ]}
+                      >
+                        Test System (5 Secs)
+                      </Text>
+                    </View>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={20}
+                      color={theme.primary}
+                    />
+                  </TouchableOpacity>
+                </View>
+
+                {scheduledNotificationId && (
+                  <TouchableOpacity
+                    style={[
+                      S.cancelBtn,
+                      { backgroundColor: COLORS.status.live + "20" },
+                    ]}
+                    onPress={cancelReminder}
+                  >
+                    <Ionicons
+                      name="notifications-off-outline"
+                      size={18}
+                      color={COLORS.status.live}
+                      style={{ marginRight: 8 }}
+                    />
+                    <Text
+                      style={{ color: COLORS.status.live, fontWeight: "600" }}
+                    >
+                      Turn off Reminder
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
     </View>
   );
 }
 
 const S = StyleSheet.create({
   container: { flex: 1 },
-  // --- New Custom Header Styles ---
   customHeader: {
     position: "absolute",
     top: 0,
@@ -450,19 +692,16 @@ const S = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingBottom: 10,
-    zIndex: 100, // Forces it on top of everything
-    // No background color, so it's transparent
+    zIndex: 100,
   },
   iconButton: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "rgba(0,0,0,0.3)", // Semi-transparent black bubble
+    backgroundColor: "rgba(0,0,0,0.3)",
     justifyContent: "center",
     alignItems: "center",
-    backdropFilter: "blur(10px)", // Nice blur effect on iOS/Web
   },
-  // -----------------------------
   imageContainer: { height: 300, width: "100%", position: "relative" },
   image: { width: "100%", height: "100%" },
   imageOverlay: {
@@ -533,4 +772,38 @@ const S = StyleSheet.create({
     elevation: 4,
   },
   calendarBtnText: { fontSize: 16, fontWeight: "700" },
+
+  // --- Modal Styles ---
+  modalOverlay: { flex: 1, justifyContent: "flex-end" },
+  modalContent: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    minHeight: 300,
+    paddingBottom: 50,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  modalTitle: { fontSize: 20, fontWeight: "700" },
+  modalSubtitle: { fontSize: 14, marginBottom: 20 },
+  optionRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+  },
+  optionText: { fontSize: 16, fontWeight: "500" },
+  cancelBtn: {
+    marginTop: 24,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 16,
+    borderRadius: 12,
+  },
 });

@@ -1,6 +1,8 @@
-# Welcome to your Expo app 👋
+# Hello there!!!
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+This app was built as a task for getting selected in Aura Tech Team of KLS GIT.
+
+You can download the app [here]()
 
 ## Get started
 
